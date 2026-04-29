@@ -42,6 +42,19 @@ You can also copy `.env.example` to `.env` and fill values locally:
 cp .env.example .env
 ```
 
+Alternatively, for shareable/persistent configuration, create:
+`~/.config/ostrom-energy/config.json`
+
+You can copy the template from this repo:
+```bash
+cp config.json.example ~/.config/ostrom-energy/config.json
+```
+
+The scripts will use credentials in this order:
+1) environment variables (`OSTROM_*`)
+2) `~/.config/ostrom-energy/config.json`
+3) interactive prompt (only if you pass `--prompt-missing-secrets`)
+
 ## Run
 
 Use the wrapper from the skill directory:
@@ -114,10 +127,11 @@ bash run.sh control \
 - Never commit or publish `.env` with real credentials.
 - Keep `--execute` off until threshold logic is verified in dry-run.
 - Treat `--on-command` and `--off-command` as trusted input only (they run as shell commands).
+- By default the scripts are non-interactive; pass `--prompt-missing-secrets` only when you want to enter credentials interactively.
 
 ## Publisher Checklist (ClawHub)
 
-- Include: `SKILL.md`, `run.sh`, `ostrom_energy.py`, `.env.example`, `.gitignore`
+- Include: `SKILL.md`, `run.sh`, `ostrom_energy.py`, `.env.example`, `config.json.example`, `.gitignore`
 - Exclude: `.env`, `__pycache__/`, local logs, temporary files
 - Validate from a clean shell:
   - `cp .env.example .env` and fill valid credentials

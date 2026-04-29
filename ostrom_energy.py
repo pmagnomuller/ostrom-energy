@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import getpass
 import json
 import math
 import os
@@ -36,6 +37,68 @@ def env_nonempty(name: str, default: str | None = None) -> str | None:
         return default
     value = value.strip()
     return value if value else default
+
+
+def load_home_config(config_dirname: str) -> dict:
+    """
+    Loads ~/.config/<config_dirname>/config.json if present.
+    Credentials provided here can be shared safely across ClawHub installs
+    without embedding secrets in the repo.
+    """
+    cfg_path = Path.home() / ".config" / config_dirname / "config.json"
+    if not cfg_path.exists():
+        return {}
+    try:
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid JSON in {cfg_path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Expected object JSON in {cfg_path}.")
+    return data
+
+
+def config_get_str(cfg: dict, *keys: str) -> str | None:
+    for k in keys:
+        v = cfg.get(k)
+        if v is None:
+            continue
+        if isinstance(v, str):
+            v = v.strip()
+        else:
+            v = str(v).strip()
+        if v:
+            return v
+    return None
+
+
+def prompt_value(label: str, is_secret: bool) -> str:
+    if is_secret:
+        return getpass.getpass(f"Enter {label}: ").strip()
+    return input(f"Enter {label}: ").strip()
+
+
+def resolve_credential(
+    *,
+    env_name: str,
+    config: dict,
+    config_keys: tuple[str, ...],
+    prompt_missing: bool,
+    prompt_label: str,
+    is_secret: bool,
+    default: str | None = None,
+) -> str | None:
+    env_value = env_nonempty(env_name)
+    if env_value:
+        return env_value
+
+    cfg_value = config_get_str(config, *config_keys)
+    if cfg_value:
+        return cfg_value
+
+    if prompt_missing:
+        return prompt_value(prompt_label, is_secret=is_secret)
+
+    return default
 
 
 def parse_dt(value: str) -> datetime:
@@ -270,6 +333,11 @@ def build_parser():
 
     s1 = sub.add_parser("prices", help="Show upcoming hourly spot prices.")
     s1.add_argument("--hours", type=int, default=24)
+    s1.add_argument(
+        "--prompt-missing-secrets",
+        action="store_true",
+        help="Prompt for missing credentials (interactive mode).",
+    )
 
     s2 = sub.add_parser("optimize", help="Find cheapest contiguous time window.")
     s2.add_argument("--duration-hours", type=int)
@@ -277,6 +345,11 @@ def build_parser():
     s2.add_argument("--power-kw", type=float)
     s2.add_argument("--window-start")
     s2.add_argument("--window-end")
+    s2.add_argument(
+        "--prompt-missing-secrets",
+        action="store_true",
+        help="Prompt for missing credentials (interactive mode).",
+    )
 
     s3 = sub.add_parser("control", help="Trigger commands from current price thresholds.")
     s3.add_argument("--price-below", type=float)
@@ -284,6 +357,11 @@ def build_parser():
     s3.add_argument("--on-command")
     s3.add_argument("--off-command")
     s3.add_argument("--execute", action="store_true")
+    s3.add_argument(
+        "--prompt-missing-secrets",
+        action="store_true",
+        help="Prompt for missing credentials (interactive mode).",
+    )
 
     return p
 
@@ -292,19 +370,81 @@ def main():
     load_local_env_file()
     parser = build_parser()
     args = parser.parse_args()
-    client_id = env_nonempty("OSTROM_CLIENT_ID")
-    client_secret = env_nonempty("OSTROM_CLIENT_SECRET")
-    zip_code = env_nonempty("OSTROM_ZIP")
-    env = (env_nonempty("OSTROM_ENV", "production") or "production").lower()
+
+    prompt_missing = bool(getattr(args, "prompt_missing_secrets", False))
+    config = load_home_config("ostrom-energy")
+
+    client_id = resolve_credential(
+        env_name="OSTROM_CLIENT_ID",
+        config=config,
+        config_keys=("client_id", "clientId", "OSTROM_CLIENT_ID"),
+        prompt_missing=prompt_missing,
+        prompt_label="OSTROM_CLIENT_ID",
+        is_secret=False,
+    )
+    client_secret = resolve_credential(
+        env_name="OSTROM_CLIENT_SECRET",
+        config=config,
+        config_keys=("client_secret", "clientSecret", "OSTROM_CLIENT_SECRET"),
+        prompt_missing=prompt_missing,
+        prompt_label="OSTROM_CLIENT_SECRET",
+        is_secret=True,
+    )
+    zip_code = resolve_credential(
+        env_name="OSTROM_ZIP",
+        config=config,
+        config_keys=("zip", "postal_code", "postalCode", "OSTROM_ZIP"),
+        prompt_missing=prompt_missing,
+        prompt_label="OSTROM_ZIP",
+        is_secret=False,
+        default=None,
+    )
+
+    ostrom_env = resolve_credential(
+        env_name="OSTROM_ENV",
+        config=config,
+        config_keys=("env", "OSTROM_ENV"),
+        prompt_missing=False,
+        prompt_label="OSTROM_ENV",
+        is_secret=False,
+        default="production",
+    )
+    env = (ostrom_env or "production").lower()
+
+    api_base_url = resolve_credential(
+        env_name="OSTROM_API_BASE_URL",
+        config=config,
+        config_keys=("api_base_url", "OSTROM_API_BASE_URL"),
+        prompt_missing=False,
+        prompt_label="OSTROM_API_BASE_URL",
+        is_secret=False,
+        default=None,
+    )
+    auth_base_url = resolve_credential(
+        env_name="OSTROM_AUTH_BASE_URL",
+        config=config,
+        config_keys=("auth_base_url", "OSTROM_AUTH_BASE_URL"),
+        prompt_missing=False,
+        prompt_label="OSTROM_AUTH_BASE_URL",
+        is_secret=False,
+        default=None,
+    )
+
     if env == "sandbox":
-        api_base_url = env_nonempty("OSTROM_API_BASE_URL", "https://sandbox.ostrom-api.io")
-        auth_base_url = env_nonempty("OSTROM_AUTH_BASE_URL", "https://auth.sandbox.ostrom-api.io")
+        api_base_url = api_base_url or "https://sandbox.ostrom-api.io"
+        auth_base_url = auth_base_url or "https://auth.sandbox.ostrom-api.io"
     else:
-        api_base_url = env_nonempty("OSTROM_API_BASE_URL", "https://production.ostrom-api.io")
-        auth_base_url = env_nonempty("OSTROM_AUTH_BASE_URL", "https://auth.production.ostrom-api.io")
+        api_base_url = api_base_url or "https://production.ostrom-api.io"
+        auth_base_url = auth_base_url or "https://auth.production.ostrom-api.io"
 
     if not client_id or not client_secret:
-        raise RuntimeError("Missing OSTROM_CLIENT_ID or OSTROM_CLIENT_SECRET environment variable.")
+        cfg_path = Path.home() / ".config" / "ostrom-energy" / "config.json"
+        raise RuntimeError(
+            "Missing OSTROM credentials. Set OSTROM_CLIENT_ID and OSTROM_CLIENT_SECRET "
+            "as environment variables, or create config at "
+            f"{cfg_path}. "
+            "To be prompted interactively, rerun with --prompt-missing-secrets."
+        )
 
     token = get_access_token(client_id, client_secret, auth_base_url)
 

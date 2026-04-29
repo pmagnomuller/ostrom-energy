@@ -20,6 +20,16 @@ cp .env.example .env
 bash run.sh prices --hours 24
 ```
 
+Alternative (recommended for shared installs): create a persisted config file:
+`~/.config/ostrom-energy/config.json`
+
+```bash
+cp config.json.example ~/.config/ostrom-energy/config.json
+```
+
+By default the commands are non-interactive; if credentials are missing, you can run with:
+`bash run.sh prices --prompt-missing-secrets --hours 24`
+
 ## Common Commands
 
 ```bash
@@ -51,3 +61,4 @@ bash run.sh control \
 - `run.sh`: launcher that loads local env and executes Python script
 - `ostrom_energy.py`: API + optimization/control logic
 - `.env.example`: template for local secrets
+- `config.json.example`: template for persisted credentials
