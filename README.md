@@ -7,6 +7,9 @@ It provides CLI commands to:
 - Find the cheapest contiguous charging/runtime window
 - Trigger on/off commands from price thresholds
 
+
+**Writeup:** [OpenClaw on My Homelab](https://pedro-muller.com/homelab/openclaw-on-my-homelab/) on my blog (how these energy skills fit the agent).
+
 ## Requirements
 
 - Python 3
